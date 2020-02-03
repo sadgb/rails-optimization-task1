@@ -1,8 +1,17 @@
 
 
-ENV['FILENAME'] = 'data_large.txt'
 
 require_relative 'task-1'
 
 
-Work.new.work
+mem = `ps -o rss= -p #{Process.pid}`.to_i / 1024
+
+puts "MEMORY USAGE: %d MB (#{mem})"
+
+
+Work.new('data_large.txt').work
+
+
+mem = `ps -o rss= -p #{Process.pid}`.to_i / 1024
+
+puts "MEMORY USAGE: %d MB (#{mem})"

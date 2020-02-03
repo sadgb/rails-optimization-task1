@@ -14,25 +14,75 @@ class Work
 
     @report = {}
     @user_stats = {}
-    @user_id_name_map = {}
 
     @unique_browsers = SortedSet.new
+
+    @users_count = 0
+    @cur_user_stats = { }
+
+    @file = File.open('result.json', 'w')
+
+    @sessions_count = 0
+    @first_user = true
+  end
+
+  def close_file
+    @file.close
+  end
+
+  def write_to_file(text)
+    @file.write(text)
+  end
+
+  def write_head
+    write_to_file('{"usersStats":{')
+  end
+
+  def finalize_user
+
+    @cur_user_stats.each do |user_name, stats|
+      stats[:totalTime] = "#{stats[:totalTime]} min."
+      stats[:longestSession] = "#{stats[:longestSession]} min."
+      stats[:browsers] = stats[:browsers].sort.join(', ')
+      stats[:dates] = stats[:dates].to_a.reverse
+
+
+      write_to_file("#{@first_user ? '' : ','}\"#{user_name}\":")
+      write_to_file(Oj.dump(stats))
+
+      @first_user = false
+    end
+
+
+    @cur_user_stats = {}
+  end
+
+  def finalize
+    finalize_user # finalize last user
+
+    write_to_file("}, \"totalUsers\":#{@users_count},")
+    write_to_file("\"totalSessions\":#{@sessions_count},")
+    write_to_file("\"uniqueBrowsersCount\":#{@unique_browsers.count},")
+    write_to_file("\"allBrowsers\":\"#{@unique_browsers.to_a.join(',')}\"}")
+
+    close_file
   end
 
   def parse_user(fields)
 
-    name = fields[2] + ' ' + fields[3]
+    @users_count += 1
+    finalize_user
 
-    @user_id_name_map[fields[1]] = name
+    name = "#{fields[2]} #{fields[3]}"
 
-    @user_stats[name] = {
-        'sessionsCount' => 0,
-        'totalTime' => 0,
-        'longestSession' => 0,
-        'browsers' => [],
-        'usedIE' => false,
-        'alwaysUsedChrome' => true,
-        'dates' => SortedSet.new
+    @cur_user_stats[name] = {
+        sessionsCount:  0,
+        totalTime:  0,
+        longestSession:  0,
+        browsers:  [],
+        usedIE:  false,
+        alwaysUsedChrome:  true,
+        dates:  SortedSet.new
     }
 
   end
@@ -40,54 +90,44 @@ class Work
 
   def parse_session(fields)
 
-    # {
-    #     user_id: cols[1],
-    #     session_id: cols[2],
-    #     browser: cols[3].upcase,
-    #     time: cols[4].to_i,
-    #     date: cols[5]
-    # }
+    @sessions_count += 1
 
+    stats = @cur_user_stats.values.last # cause we only have one
 
-    user_name = @user_id_name_map[fields[1]]
-
-    stats = @user_stats[user_name]
-
-    stats['sessionsCount'] += 1
+    stats[:sessionsCount] += 1
 
     time = fields[4].to_i
 
-    stats['totalTime'] += time
-    stats['longestSession'] = time if time > stats['longestSession']
+    stats[:totalTime] += time
+    stats[:longestSession] = time if time > stats[:longestSession]
 
-    stats['dates'].add(fields[5])
+    stats[:dates].add(fields[5].chomp)
 
     browser = fields[3].upcase
     @unique_browsers.add(browser)
-    stats['usedIE'] ||= !browser['INTERNET EXPLORER'].nil?
-    stats['browsers'] << browser
-    stats['alwaysUsedChrome'] &&= !browser['CHROME'].nil?
+    stats[:usedIE] ||= !browser['INTERNET EXPLORER'].nil?
+    stats[:browsers] << browser
+    stats[:alwaysUsedChrome] &&= !browser['CHROME'].nil?
 
 
   end
 
   def work
-    file_lines = File.read(@filename).split("\n")
+    write_head
 
 
-    sessions_count = 0
-
-    file_lines.each do |line|
+    File.open(@filename,'r').each do |line|
       cols = line.split(',')
 
       if cols[0] == 'session'
-        sessions_count += 1
         parse_session(cols)
       elsif cols[0] == 'user'
         parse_user(cols)
       end
 
     end
+
+
 
     # Отчёт в json
     #   - Сколько всего юзеров +
@@ -105,27 +145,7 @@ class Work
     #     - даты сессий в порядке убывания через запятую +
 
 
-    report[:totalUsers] = @user_id_name_map.count
+    finalize
 
-
-    report['uniqueBrowsersCount'] = @unique_browsers.count
-    report['totalSessions'] = sessions_count
-    report['allBrowsers'] = @unique_browsers.to_a.join(',')
-
-
-    @user_stats.each do |user_name, stats|
-      @user_stats[user_name]['totalTime'] = "#{@user_stats[user_name]['totalTime']} min."
-      @user_stats[user_name]['longestSession'] = "#{@user_stats[user_name]['longestSession']} min."
-      @user_stats[user_name]['browsers'] = @user_stats[user_name]['browsers'].sort.join(', ')
-      @user_stats[user_name]['dates'] = @user_stats[user_name]['dates'].to_a.reverse
-
-
-    end
-
-
-
-    report['usersStats'] = @user_stats
-    Oj.mimic_JSON()
-    File.write('result.json', Oj.dump(report) + "\n")
   end
 end
