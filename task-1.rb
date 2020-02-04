@@ -4,6 +4,7 @@
 require 'oj'
 require 'set'
 
+Oj.default_options = {mode: :strict }
 
 class Work
 
